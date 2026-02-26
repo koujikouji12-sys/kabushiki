@@ -74,7 +74,7 @@ export async function fetchHistory(
     const history: any[] = await yahooFinance.historical(symbol, {
       period1,
       interval: "1d",
-    });
+    }, { validateResult: false });
     console.log(`[history] ${symbol}: ${history?.length ?? 0}件`);
     return history
       .filter((d: any) => d.close != null && d.volume != null)
