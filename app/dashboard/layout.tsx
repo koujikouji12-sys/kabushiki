@@ -51,17 +51,27 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [topRising, setTopRising] = useState<FullStockData[]>([]);
   const [loading, setLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const res = await fetch("/api/stock/refresh", { method: "POST" });
-      if (!res.ok) throw new Error("APIエラー");
-      const data: RefreshResponse = await res.json();
-      setAllStocks(data.allStocks);
-      setTopRising(data.topRising);
-      setLastUpdated(data.timestamp);
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "データ取得に失敗しました");
+        return;
+      }
+      const typed = data as RefreshResponse;
+      setAllStocks(typed.allStocks);
+      setTopRising(typed.topRising);
+      setLastUpdated(typed.timestamp);
+      if (typed.errors?.length) {
+        console.warn("一部エラー:", typed.errors);
+      }
     } catch (e) {
+      setError("通信エラー: " + String(e));
       console.error("Refresh failed:", e);
     } finally {
       setLoading(false);
@@ -85,6 +95,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
           <div className="mt-auto pt-4 border-t border-slate-800">
             <RefreshButton onRefresh={refresh} loading={loading} lastUpdated={lastUpdated} />
+            {error && (
+              <p className="text-red-400 text-xs mt-2 break-words">{error}</p>
+            )}
           </div>
         </aside>
 
