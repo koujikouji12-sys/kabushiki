@@ -75,6 +75,7 @@ export async function fetchHistory(
       period1,
       interval: "1d",
     });
+    console.log(`[history] ${symbol}: ${history?.length ?? 0}件`);
     return history
       .filter((d: any) => d.close != null && d.volume != null)
       .map((d: any) => ({
@@ -85,7 +86,8 @@ export async function fetchHistory(
         close: d.close,
         volume: d.volume ?? 0,
       }));
-  } catch {
+  } catch (e) {
+    console.error(`[history] ${symbol} エラー:`, String(e));
     return [];
   }
 }
