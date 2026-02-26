@@ -70,16 +70,17 @@ export async function fetchHistory(
   months = 3
 ): Promise<OHLCVBar[]> {
   try {
-    const period1 = subMonths(new Date(), months);
-    const history: any[] = await yahooFinance.historical(symbol, {
+    const period1 = subMonths(new Date(), months).toISOString().split("T")[0];
+    const result: any = await yahooFinance.chart(symbol, {
       period1,
       interval: "1d",
-    }, { validateResult: false });
-    console.log(`[history] ${symbol}: ${history?.length ?? 0}件`);
-    return history
+    });
+    const quotes: any[] = result?.quotes ?? [];
+    console.log(`[history] ${symbol}: ${quotes.length}件`);
+    return quotes
       .filter((d: any) => d.close != null && d.volume != null)
       .map((d: any) => ({
-        date: d.date.toISOString().split("T")[0],
+        date: new Date(d.date).toISOString().split("T")[0],
         open: d.open ?? d.close,
         high: d.high ?? d.close,
         low: d.low ?? d.close,
