@@ -11,12 +11,12 @@ export async function POST() {
   const timestamp = new Date().toISOString();
 
   try {
-    // 全銘柄の現在値を取得
-    const quotes = await fetchAllQuotes(NIKKEI225_STOCKS);
-
-    // 全銘柄の過去3ヶ月データを取得
+    // クオートと過去データを並列取得（大幅な高速化）
     const symbols = NIKKEI225_STOCKS.map((s) => s.symbol);
-    const histories = await fetchAllHistories(symbols, 3);
+    const [quotes, histories] = await Promise.all([
+      fetchAllQuotes(NIKKEI225_STOCKS),
+      fetchAllHistories(symbols, 3),
+    ]);
 
     // 各銘柄の指標計算＋スコアリング
     const allStocks: FullStockData[] = [];

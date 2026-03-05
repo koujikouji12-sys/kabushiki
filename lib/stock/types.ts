@@ -67,6 +67,25 @@ export interface FullStockData {
   lastUpdated: string; // ISO timestamp
 }
 
+// 高配当株監視用クオート
+export interface DividendQuote {
+  symbol: string;
+  openPrice: number | null;
+  highPrice: number | null;
+  lowPrice: number | null;
+  closePrice: number | null;
+  changePercent: number | null;
+  changeAmount: number | null;
+  previousClose: number | null;
+  error?: boolean;
+}
+
+// 高配当株APIレスポンス型
+export interface DividendRefreshResponse {
+  quotes: DividendQuote[];
+  timestamp: string;
+}
+
 // APIレスポンス型
 export interface RefreshResponse {
   topRising: FullStockData[];   // スコア上位10銘柄

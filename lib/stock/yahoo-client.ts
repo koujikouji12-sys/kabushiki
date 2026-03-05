@@ -8,8 +8,8 @@ import type { StockMeta, StockQuote, OHLCVBar } from "./types";
 async function fetchInBatches<T>(
   items: string[],
   fetcher: (item: string) => Promise<T | null>,
-  batchSize = 5,
-  delayMs = 300
+  batchSize = 15,
+  delayMs = 100
 ): Promise<(T | null)[]> {
   const results: (T | null)[] = [];
   for (let i = 0; i < items.length; i += batchSize) {
@@ -25,7 +25,7 @@ async function fetchInBatches<T>(
   return results;
 }
 
-// 単一銘柄の現在値取得
+// 単一銘柄の現在値取得（フォールバック用）
 export async function fetchQuote(
   meta: StockMeta
 ): Promise<StockQuote | null> {
@@ -49,19 +49,56 @@ export async function fetchQuote(
   }
 }
 
-// 全銘柄の現在値を一括取得
+// 全銘柄の現在値を一括取得（1リクエストで全銘柄、失敗時は個別取得にフォールバック）
 export async function fetchAllQuotes(
   stocks: StockMeta[]
 ): Promise<StockQuote[]> {
-  const results = await fetchInBatches(
-    stocks.map((s) => s.symbol),
-    async (symbol) => {
-      const meta = stocks.find((s) => s.symbol === symbol);
-      if (!meta) return null;
-      return fetchQuote(meta);
+  const symbols = stocks.map((s) => s.symbol);
+
+  try {
+    // yahoo-finance2 は配列を渡すと一括取得できる（大幅に高速化）
+    const results: any = await yahooFinance.quote(symbols);
+    const arr: any[] = Array.isArray(results) ? results : [results];
+
+    const quotes = arr
+      .filter((q) => q != null && q.regularMarketPrice != null)
+      .map((q) => {
+        const meta = stocks.find((s) => s.symbol === q.symbol);
+        if (!meta) return null;
+        return {
+          symbol: meta.symbol,
+          code: meta.code,
+          nameJa: meta.nameJa,
+          sector: meta.sector,
+          price: q.regularMarketPrice ?? 0,
+          previousClose: q.regularMarketPreviousClose ?? 0,
+          changeAmount: q.regularMarketChange ?? 0,
+          changePercent: q.regularMarketChangePercent ?? 0,
+          volume: q.regularMarketVolume ?? 0,
+          marketCap: q.marketCap ?? undefined,
+        } as StockQuote;
+      })
+      .filter((q): q is StockQuote => q !== null);
+
+    if (quotes.length > 0) {
+      console.log(`[quotes] 一括取得成功: ${quotes.length}銘柄`);
+      return quotes;
     }
-  );
-  return results.filter((r): r is StockQuote => r !== null);
+    throw new Error("一括取得: 有効な結果なし");
+  } catch (e) {
+    console.warn("[quotes] 一括取得失敗、個別取得にフォールバック:", String(e));
+    // フォールバック: 15件バッチ・100ms遅延で個別取得
+    const fallback = await fetchInBatches(
+      symbols,
+      async (symbol) => {
+        const meta = stocks.find((s) => s.symbol === symbol);
+        return meta ? fetchQuote(meta) : null;
+      },
+      15,
+      100
+    );
+    return fallback.filter((r): r is StockQuote => r !== null);
+  }
 }
 
 // 単一銘柄の過去データ取得
@@ -76,7 +113,6 @@ export async function fetchHistory(
       interval: "1d",
     });
     const quotes: any[] = result?.quotes ?? [];
-    console.log(`[history] ${symbol}: ${quotes.length}件`);
     return quotes
       .filter((d: any) => d.close != null && d.volume != null)
       .map((d: any) => ({
@@ -93,7 +129,7 @@ export async function fetchHistory(
   }
 }
 
-// 全銘柄の過去データを一括取得
+// 全銘柄の過去データを高速一括取得（15件並列・100ms遅延）
 export async function fetchAllHistories(
   symbols: string[],
   months = 3
@@ -101,10 +137,13 @@ export async function fetchAllHistories(
   const result = new Map<string, OHLCVBar[]>();
   const histories = await fetchInBatches(
     symbols,
-    async (symbol) => ({ symbol, bars: await fetchHistory(symbol, months) })
+    async (symbol) => ({ symbol, bars: await fetchHistory(symbol, months) }),
+    15,
+    100
   );
   for (const h of histories) {
     if (h) result.set(h.symbol, h.bars);
   }
+  console.log(`[histories] 取得完了: ${result.size}銘柄`);
   return result;
 }
