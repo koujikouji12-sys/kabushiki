@@ -10,18 +10,52 @@ import React, {
 } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { FullStockData, RefreshResponse, DividendQuote } from "@/lib/stock/types";
+import type { FullStockData, RefreshResponse, DividendQuote, StockQuote } from "@/lib/stock/types";
 import type { StockMeta } from "@/lib/stock/types";
 import { RefreshButton } from "@/components/stock/RefreshButton";
 import { DEFAULT_DIVIDEND_STOCKS } from "@/lib/stock/dividend-stocks-list";
 
 const DIVIDEND_STORAGE_KEY = "dividendWatchStocks";
 
+// クォートのみから最小限の FullStockData を生成（ヒートマップ用）
+function quotesToHeatmapStocks(quotes: StockQuote[], timestamp: string): FullStockData[] {
+  return quotes.map(q => ({
+    quote: q,
+    indicators: {
+      symbol: q.symbol,
+      rsi14: null,
+      macdLine: null,
+      macdSignal: null,
+      macdHistogram: null,
+      macdCross: "none" as const,
+      volumeRatio: null,
+      maDeviation25: null,
+      bbLower: null,
+      bbMiddle: null,
+      bbUpper: null,
+      bbPosition: null,
+    },
+    score: {
+      symbol: q.symbol,
+      rsiScore: 0,
+      macdScore: 0,
+      volumeScore: 0,
+      deviationScore: 0,
+      bbScore: 0,
+      totalScore: 0,
+      reasons: [],
+    },
+    history: [],
+    lastUpdated: timestamp,
+  }));
+}
+
 // StockContext
 interface StockContextType {
   // 日経225
   allStocks: FullStockData[];
   topRising: FullStockData[];
+  heatmapStocks: FullStockData[]; // 高速ヒートマップ用（クォートのみ）
   loading: boolean;
   lastUpdated: string | null;
   refresh: () => Promise<void>;
@@ -38,6 +72,7 @@ interface StockContextType {
 const StockContext = createContext<StockContextType>({
   allStocks: [],
   topRising: [],
+  heatmapStocks: [],
   loading: false,
   lastUpdated: null,
   refresh: async () => {},
@@ -77,6 +112,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // 日経225 state
   const [allStocks, setAllStocks] = useState<FullStockData[]>([]);
   const [topRising, setTopRising] = useState<FullStockData[]>([]);
+  const [heatmapStocks, setHeatmapStocks] = useState<FullStockData[]>([]);
   const [loading, setLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -128,31 +164,43 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     setLoading(true);
     setError(null);
 
-    // 日経225 と 高配当株を並列取得
-    const nikkeiPromise = (async () => {
-      try {
-        const res = await fetch("/api/stock/refresh", { method: "POST" });
-        const data = await res.json();
-        if (!res.ok) {
-          setError(data.error ?? "データ取得に失敗しました");
-          return;
+    // Phase 1: クォートのみ高速取得 ＋ 高配当株を並列で取得 → ヒートマップをすぐに表示
+    await Promise.all([
+      (async () => {
+        try {
+          const res = await fetch("/api/stock/heatmap");
+          const data = await res.json();
+          if (res.ok && data.quotes) {
+            setHeatmapStocks(quotesToHeatmapStocks(data.quotes, data.timestamp));
+          }
+        } catch (e) {
+          console.warn("ヒートマップ高速取得失敗:", e);
         }
+      })(),
+      fetchDividendQuotes(dividendStocksRef.current),
+    ]);
+
+    // Phase 2: Phase 1完了後に履歴+スコアリング込みの完全データ取得（Yahoo Finance二重呼び出し回避）
+    try {
+      const res = await fetch("/api/stock/refresh", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "データ取得に失敗しました");
+      } else {
         const typed = data as RefreshResponse;
         setAllStocks(typed.allStocks);
         setTopRising(typed.topRising);
         setLastUpdated(typed.timestamp);
+        setHeatmapStocks([]); // 完全データで代替されるので不要に
         if (typed.errors?.length) {
           console.warn("一部エラー:", typed.errors);
         }
-      } catch (e) {
-        setError("通信エラー: " + String(e));
-        console.error("Refresh failed:", e);
       }
-    })();
+    } catch (e) {
+      setError("通信エラー: " + String(e));
+      console.error("Refresh failed:", e);
+    }
 
-    const dividendPromise = fetchDividendQuotes(dividendStocksRef.current);
-
-    await Promise.all([nikkeiPromise, dividendPromise]);
     setLoading(false);
   }, [fetchDividendQuotes]);
 
@@ -218,31 +266,44 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       // 読み込み失敗時はデフォルトを使用
     }
 
-    // 日経225 と 高配当株を並列で自動取得
+    // 日経225 と 高配当株を自動取得
     const autoFetch = async () => {
       setLoading(true);
       setError(null);
 
-      const nikkeiPromise = (async () => {
-        try {
-          const res = await fetch("/api/stock/refresh", { method: "POST" });
-          const data = await res.json();
-          if (!res.ok) {
-            setError(data.error ?? "データ取得に失敗しました");
-            return;
+      // Phase 1: クォートのみ高速取得 ＋ 高配当株を並列で取得 → ヒートマップをすぐに表示
+      await Promise.all([
+        (async () => {
+          try {
+            const res = await fetch("/api/stock/heatmap");
+            const data = await res.json();
+            if (res.ok && data.quotes) {
+              setHeatmapStocks(quotesToHeatmapStocks(data.quotes, data.timestamp));
+            }
+          } catch (e) {
+            console.warn("ヒートマップ高速取得失敗:", e);
           }
+        })(),
+        fetchDividendQuotes(stocksToUse),
+      ]);
+
+      // Phase 2: Phase 1完了後に履歴+スコアリング込みの完全データ取得（Yahoo Finance二重呼び出し回避）
+      try {
+        const res = await fetch("/api/stock/refresh", { method: "POST" });
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data.error ?? "データ取得に失敗しました");
+        } else {
           const typed = data as RefreshResponse;
           setAllStocks(typed.allStocks);
           setTopRising(typed.topRising);
           setLastUpdated(typed.timestamp);
-        } catch (e) {
-          setError("通信エラー: " + String(e));
+          setHeatmapStocks([]);
         }
-      })();
+      } catch (e) {
+        setError("通信エラー: " + String(e));
+      }
 
-      const dividendPromise = fetchDividendQuotes(stocksToUse);
-
-      await Promise.all([nikkeiPromise, dividendPromise]);
       setLoading(false);
     };
 
@@ -255,6 +316,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       value={{
         allStocks,
         topRising,
+        heatmapStocks,
         loading,
         lastUpdated,
         refresh,
@@ -272,7 +334,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <aside className="hidden md:flex flex-col w-56 bg-slate-900 border-r border-slate-800 p-4 fixed h-full">
           <div className="mb-6">
             <h1 className="text-white font-bold text-lg">📊 株式分析</h1>
-            <p className="text-slate-500 text-xs mt-1">日経225 主要50銘柄</p>
+            <p className="text-slate-500 text-xs mt-1">日経225 全225銘柄</p>
           </div>
 
           <nav className="space-y-1 flex-1">

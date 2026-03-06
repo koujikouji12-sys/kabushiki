@@ -25,7 +25,7 @@ export default function DashboardPage() {
           <p className="text-white text-lg font-semibold mb-2">データを取得してください</p>
           <p className="text-slate-400 text-sm mb-4">
             サイドバーの「データ更新」ボタンを押すと、Yahoo Finance から<br />
-            日経225主要50銘柄のデータを取得・分析します。
+            日経225全銘柄のデータを取得・分析します。
           </p>
           <p className="text-slate-500 text-xs">
             ※ 初回取得は30〜60秒程度かかる場合があります

@@ -17,11 +17,14 @@ const LEGEND_ITEMS = [
 ];
 
 export default function HeatmapPage() {
-  const { allStocks, loading } = useStock();
+  const { allStocks, heatmapStocks, loading } = useStock();
 
-  const rising = allStocks.filter((s) => s.quote.changePercent > 0).length;
-  const falling = allStocks.filter((s) => s.quote.changePercent < 0).length;
-  const flat = allStocks.length - rising - falling;
+  // 完全データが揃えばそちらを、まだなければ高速クォートデータを使用
+  const effectiveStocks = allStocks.length > 0 ? allStocks : heatmapStocks;
+
+  const rising = effectiveStocks.filter((s) => s.quote.changePercent > 0).length;
+  const falling = effectiveStocks.filter((s) => s.quote.changePercent < 0).length;
+  const flat = effectiveStocks.length - rising - falling;
 
   return (
     <div>
@@ -34,7 +37,7 @@ export default function HeatmapPage() {
       </div>
 
       {/* データなし */}
-      {!loading && allStocks.length === 0 && (
+      {!loading && effectiveStocks.length === 0 && (
         <div className="bg-slate-800/50 border border-slate-700 border-dashed rounded-xl p-10 text-center">
           <p className="text-5xl mb-4">🌡️</p>
           <p className="text-white text-lg font-semibold mb-2">データを取得してください</p>
@@ -52,7 +55,7 @@ export default function HeatmapPage() {
       )}
 
       {/* ヒートマップ本体 */}
-      {!loading && allStocks.length > 0 && (
+      {effectiveStocks.length > 0 && (
         <div className="space-y-4">
           {/* 騰落サマリー */}
           <div className="flex items-center gap-4 text-sm">
@@ -86,7 +89,7 @@ export default function HeatmapPage() {
 
           {/* ヒートマップ（業種別タイル） */}
           <div className="bg-slate-900 border border-slate-700 rounded-xl p-4">
-            <HeatmapChart stocks={allStocks} />
+            <HeatmapChart stocks={effectiveStocks} />
           </div>
 
           <p className="text-slate-600 text-xs text-right">

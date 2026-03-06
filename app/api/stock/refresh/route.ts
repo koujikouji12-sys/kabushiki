@@ -4,7 +4,7 @@ import { fetchAllQuotes, fetchAllHistories } from "@/lib/stock/yahoo-client";
 import { computeIndicatorsAndScore } from "@/lib/stock/indicators/scorer";
 import type { FullStockData, RefreshResponse } from "@/lib/stock/types";
 
-export const maxDuration = 60; // 60秒タイムアウト
+export const maxDuration = 120; // 225銘柄対応: 120秒タイムアウト
 
 export async function POST() {
   const errors: string[] = [];

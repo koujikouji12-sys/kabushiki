@@ -46,7 +46,7 @@ function PriceCell({ value, up, down }: { value: number | null; up?: boolean; do
 
 // ---- スクリーニング結果の表示 ----
 const CRITERIA_LABELS: { key: keyof ScreenResult["criteria"]; label: string; short: string }[] = [
-  { key: "dividendYield",   label: "配当利回り3.75%+",  short: "配当" },
+  { key: "dividendYield",   label: "配当利回り3%+（必須）", short: "配当" },
   { key: "pbr",             label: "PBR 0.5〜1.5倍",    short: "PBR" },
   { key: "payoutRatio",     label: "配当性向80%未満",   short: "性向" },
   { key: "operatingMargin", label: "営業利益率10%+",    short: "利益率" },
@@ -394,6 +394,7 @@ export default function DividendsPage() {
               <tr className="border-b border-slate-700 bg-slate-800/60">
                 <th className="text-left text-slate-400 font-medium px-4 py-3 w-16">コード</th>
                 <th className="text-left text-slate-400 font-medium px-4 py-3">銘柄名</th>
+                <th className="text-right text-amber-400 font-medium px-4 py-3 w-24">配当利回り</th>
                 <th className="text-right text-slate-400 font-medium px-4 py-3 w-24">始値</th>
                 <th className="text-right font-medium px-4 py-3 w-24"><span className="text-red-400">高値</span></th>
                 <th className="text-right font-medium px-4 py-3 w-24"><span className="text-blue-400">安値</span></th>
@@ -406,15 +407,22 @@ export default function DividendsPage() {
             <tbody>
               {dividendStocks.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="text-center text-slate-500 py-12">
+                  <td colSpan={10} className="text-center text-slate-500 py-12">
                     監視銘柄がありません。上のフォームから銘柄を追加してください。
                   </td>
                 </tr>
               )}
-              {dividendStocks.map(stock => {
+              {[...dividendStocks]
+                .sort((a, b) => {
+                  const ya = dividendQuotes.get(a.symbol)?.dividendYield ?? -1;
+                  const yb = dividendQuotes.get(b.symbol)?.dividendYield ?? -1;
+                  return yb - ya;
+                })
+                .map(stock => {
                 const q = dividendQuotes.get(stock.symbol);
                 const isUp = (q?.changePercent ?? 0) > 0;
                 const isDown = (q?.changePercent ?? 0) < 0;
+                const yieldPct = q?.dividendYield != null ? (q.dividendYield * 100).toFixed(2) + "%" : null;
                 return (
                   <tr
                     key={stock.symbol}
@@ -425,6 +433,9 @@ export default function DividendsPage() {
                     <td className="px-4 py-3">
                       <div className="text-white font-medium leading-tight">{stock.nameJa}</div>
                       <div className="text-slate-500 text-xs mt-0.5">{stock.sector}</div>
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono font-semibold text-amber-400">
+                      {yieldPct ?? <span className="text-slate-600 font-normal">—</span>}
                     </td>
                     <td className="px-4 py-3 text-right font-mono text-slate-300">
                       {formatPrice(q?.openPrice ?? null)}

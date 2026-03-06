@@ -40,6 +40,7 @@ export async function GET(request: NextRequest) {
             changePercent: q?.regularMarketChangePercent ?? null,
             changeAmount: q?.regularMarketChange ?? null,
             previousClose: q?.regularMarketPreviousClose ?? null,
+            dividendYield: q?.trailingAnnualDividendYield ?? q?.dividendYield ?? null,
           };
         } catch {
           return {
@@ -51,6 +52,7 @@ export async function GET(request: NextRequest) {
             changePercent: null,
             changeAmount: null,
             previousClose: null,
+            dividendYield: null,
             error: true,
           };
         }

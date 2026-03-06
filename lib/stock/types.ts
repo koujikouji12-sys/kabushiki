@@ -77,6 +77,7 @@ export interface DividendQuote {
   changePercent: number | null;
   changeAmount: number | null;
   previousClose: number | null;
+  dividendYield: number | null;  // 予想配当利回り（小数: 0.04 = 4%）
   error?: boolean;
 }
 

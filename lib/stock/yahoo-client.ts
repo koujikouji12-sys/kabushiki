@@ -129,7 +129,7 @@ export async function fetchHistory(
   }
 }
 
-// 全銘柄の過去データを高速一括取得（15件並列・100ms遅延）
+// 全銘柄の過去データを高速一括取得（20件並列・50ms遅延）
 export async function fetchAllHistories(
   symbols: string[],
   months = 3
@@ -138,8 +138,8 @@ export async function fetchAllHistories(
   const histories = await fetchInBatches(
     symbols,
     async (symbol) => ({ symbol, bars: await fetchHistory(symbol, months) }),
-    15,
-    100
+    20,
+    50
   );
   for (const h of histories) {
     if (h) result.set(h.symbol, h.bars);

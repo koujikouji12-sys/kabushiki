@@ -22,7 +22,7 @@ export interface ScreenMetrics {
 }
 
 export interface CriteriaResult {
-  dividendYield: boolean | null;   // 1. 3.75%以上
+  dividendYield: boolean | null;   // 1. 3%以上（必須条件）
   pbr: boolean | null;             // 2. PBR 0.5〜1.5
   payoutRatio: boolean | null;     // 3/4. 配当性向80%未満
   operatingMargin: boolean | null; // 6. 営業利益率10%以上
@@ -194,7 +194,7 @@ async function screenOneStock(candidate: ScreenCandidate): Promise<ScreenResult 
     };
 
     const criteria: CriteriaResult = {
-      dividendYield: dividendYield !== null ? dividendYield >= 0.0375 : null,
+      dividendYield: dividendYield !== null ? dividendYield >= 0.03 : null,
       pbr: pbr !== null ? pbr >= 0.5 && pbr <= 1.5 : null,
       payoutRatio: payoutRatio !== null ? payoutRatio < 0.8 : null,
       operatingMargin: operatingMargin !== null ? operatingMargin >= 0.10 : null,
@@ -213,18 +213,41 @@ async function screenOneStock(candidate: ScreenCandidate): Promise<ScreenResult 
 
 export async function screenAllCandidates(): Promise<ScreenResult[]> {
   const results: ScreenResult[] = [];
-  const batchSize = 5;
-  const delayMs = 400;
 
-  for (let i = 0; i < SCREEN_CANDIDATES.length; i += batchSize) {
-    const batch = SCREEN_CANDIDATES.slice(i, i + batchSize);
+  // Phase 1: 全候補を一括クォートで配当利回りを事前取得し、必須条件（3%以上）で絞り込む
+  let filteredCandidates = SCREEN_CANDIDATES;
+  try {
+    const symbols = SCREEN_CANDIDATES.map(c => c.symbol);
+    const quotes: any = await yahooFinance.quote(symbols);
+    const quoteArr: any[] = Array.isArray(quotes) ? quotes : [quotes];
+    const yieldMap = new Map<string, number>();
+    for (const q of quoteArr) {
+      const y = q?.trailingAnnualDividendYield ?? q?.dividendYield ?? null;
+      if (y != null && q?.symbol) yieldMap.set(q.symbol, y);
+    }
+    // 配当利回り3%未満は除外（データがない場合は含める）
+    filteredCandidates = SCREEN_CANDIDATES.filter(c => {
+      const y = yieldMap.get(c.symbol);
+      return y == null || y >= 0.03;
+    });
+    console.log(`[screener] 事前フィルタ: ${SCREEN_CANDIDATES.length}銘柄 → ${filteredCandidates.length}銘柄 (配当利回り3%+)`);
+  } catch (e) {
+    console.warn("[screener] 事前フィルタ失敗、全銘柄をスクリーニング:", String(e));
+  }
+
+  // Phase 2: 絞り込み済み銘柄のみ詳細データ取得（バッチサイズ10・200ms遅延）
+  const batchSize = 10;
+  const delayMs = 200;
+
+  for (let i = 0; i < filteredCandidates.length; i += batchSize) {
+    const batch = filteredCandidates.slice(i, i + batchSize);
     const batchResults = await Promise.allSettled(batch.map(screenOneStock));
     for (const r of batchResults) {
       if (r.status === "fulfilled" && r.value) {
         results.push(r.value);
       }
     }
-    if (i + batchSize < SCREEN_CANDIDATES.length) {
+    if (i + batchSize < filteredCandidates.length) {
       await new Promise(resolve => setTimeout(resolve, delayMs));
     }
   }
