@@ -289,7 +289,19 @@ export default function DividendsPage() {
     if (alreadyAdded.has(symbol)) { setFormError("この銘柄はすでに追加されています"); return; }
     setFormError(null);
     setAddLoading(true);
-    await addDividendStock({ code, symbol, nameJa: addName.trim() || code, sector: addSector.trim() || "その他" });
+
+    let nameJa = addName.trim();
+    if (!nameJa) {
+      try {
+        const res = await fetch(`/api/stock/name?symbol=${encodeURIComponent(symbol)}`);
+        const data = await res.json();
+        nameJa = data.name || code;
+      } catch {
+        nameJa = code;
+      }
+    }
+
+    await addDividendStock({ code, symbol, nameJa, sector: addSector.trim() || "その他" });
     setAddLoading(false);
     setAddCode(""); setAddName(""); setAddSector("");
   };
