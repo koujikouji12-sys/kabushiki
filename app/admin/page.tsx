@@ -3,7 +3,7 @@ import { authOptions } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 import { redirect } from "next/navigation";
 
-const ADMIN_EMAIL = "koujiikouji12@gmail.com";
+const ADMIN_EMAIL = "koujikouji12@gmail.com";
 
 export default async function AdminPage() {
   const session = await getServerSession(authOptions);
