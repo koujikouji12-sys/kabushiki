@@ -352,6 +352,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <NavLink href="/dashboard/list" label="銘柄一覧" icon="📋" />
             <NavLink href="/dashboard/heatmap" label="ヒートマップ" icon="🌡️" />
             <NavLink href="/dashboard/dividends" label="高配当株監視" icon="💰" />
+            {session?.user?.email === "koujikouji12@gmail.com" && (
+              <NavLink href="/admin" label="ユーザー管理" icon="⚙️" />
+            )}
           </nav>
 
           <div className="mt-auto pt-4 border-t border-slate-800 space-y-3">
