@@ -10,12 +10,16 @@ import React, {
 } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSession, signOut } from "next-auth/react";
 import type { FullStockData, RefreshResponse, DividendQuote, StockQuote } from "@/lib/stock/types";
 import type { StockMeta } from "@/lib/stock/types";
 import { RefreshButton } from "@/components/stock/RefreshButton";
 import { DEFAULT_DIVIDEND_STOCKS } from "@/lib/stock/dividend-stocks-list";
 
-const DIVIDEND_STORAGE_KEY = "dividendWatchStocks";
+// ユーザーメールアドレスをキーに使い、ユーザーごとにデータを分離する
+function getDividendStorageKey(email: string | null | undefined) {
+  return email ? `dividendWatchStocks_${email}` : "dividendWatchStocks_guest";
+}
 
 // クォートのみから最小限の FullStockData を生成（ヒートマップ用）
 function quotesToHeatmapStocks(quotes: StockQuote[], timestamp: string): FullStockData[] {
@@ -109,6 +113,9 @@ function NavLink({ href, label, icon }: { href: string; label: string; icon: str
 }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const { data: session, status } = useSession();
+  const storageKey = getDividendStorageKey(session?.user?.email);
+
   // 日経225 state
   const [allStocks, setAllStocks] = useState<FullStockData[]>([]);
   const [topRising, setTopRising] = useState<FullStockData[]>([]);
@@ -131,9 +138,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     dividendStocksRef.current = dividendStocks;
   }, [dividendStocks]);
 
-  // localStorage に保存するヘルパー
+  // localStorage に保存するヘルパー（ユーザーごとのキーを使用）
   const saveDividendStocks = (stocks: StockMeta[]) => {
-    localStorage.setItem(DIVIDEND_STORAGE_KEY, JSON.stringify(stocks));
+    localStorage.setItem(storageKey, JSON.stringify(stocks));
   };
 
   // 高配当株データを取得（現在のrefの銘柄リストを使用）
@@ -248,12 +255,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     setDividendQuotes(new Map());
   }, []);
 
-  // マウント時に localStorage を読み込んで自動取得
+  // セッション確定後に localStorage を読み込んで自動取得
   useEffect(() => {
-    // localStorage から銘柄リストを復元
+    // セッション読み込み中は待機
+    if (status === "loading") return;
+
+    // localStorage から銘柄リストを復元（ユーザーごとのキー）
     let stocksToUse = DEFAULT_DIVIDEND_STOCKS;
     try {
-      const saved = localStorage.getItem(DIVIDEND_STORAGE_KEY);
+      const saved = localStorage.getItem(storageKey);
       if (saved) {
         const parsed = JSON.parse(saved) as StockMeta[];
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -309,7 +319,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
     autoFetch();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [status, storageKey]);
 
   return (
     <StockContext.Provider
@@ -344,10 +354,35 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <NavLink href="/dashboard/dividends" label="高配当株監視" icon="💰" />
           </nav>
 
-          <div className="mt-auto pt-4 border-t border-slate-800">
+          <div className="mt-auto pt-4 border-t border-slate-800 space-y-3">
             <RefreshButton onRefresh={refresh} loading={loading} lastUpdated={lastUpdated} />
             {error && (
-              <p className="text-red-400 text-xs mt-2 break-words">{error}</p>
+              <p className="text-red-400 text-xs break-words">{error}</p>
+            )}
+            {/* ユーザー情報 */}
+            {session?.user && (
+              <div className="pt-3 border-t border-slate-800">
+                <div className="flex items-center gap-2 mb-2">
+                  {session.user.image && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={session.user.image}
+                      alt={session.user.name ?? ""}
+                      className="w-7 h-7 rounded-full"
+                    />
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-white text-xs font-medium truncate">{session.user.name}</p>
+                    <p className="text-slate-500 text-xs truncate">{session.user.email}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => signOut({ callbackUrl: "/login" })}
+                  className="w-full text-left text-slate-400 hover:text-white text-xs px-2 py-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+                >
+                  ログアウト
+                </button>
+              </div>
             )}
           </div>
         </aside>
