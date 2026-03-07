@@ -8,5 +8,5 @@ export default withAuth({
 
 export const config = {
   // /dashboard 配下は全てログイン必須
-  matcher: ["/dashboard/:path*"],
+  matcher: ["/dashboard/:path*", "/admin/:path*"],
 };
