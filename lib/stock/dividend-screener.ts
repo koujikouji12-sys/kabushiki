@@ -153,17 +153,23 @@ async function screenOneStock(candidate: ScreenCandidate): Promise<ScreenResult 
       bsAnnual.totalAssets != null ? bsAnnual : bsQuarterly;
 
     // 配当利回りの計算（route.ts と同じロジック）:
-    // lastDividendValue / dividendRate の比率で支払い頻度を判定:
-    //   ratio < 0.8 → 年2回払い: lastDividendValue × 2 / price
     //   ratio >= 0.8 → 年1回払い: dividendRate / price
+    //   lastDiv×2 > dividendRate×1.15 → dividendRate が古い: lastDiv×2 / price
+    //   それ以外 → dividendRate / price（YF の forward estimate が正確）
     const currentPrice: number | null = fd.currentPrice ?? null;
     const dividendYield: number | null = (() => {
       if (ks.lastDividendValue && currentPrice && currentPrice > 0) {
         const ratio = sd.dividendRate ? ks.lastDividendValue / sd.dividendRate : 0;
+        const annualEst = ks.lastDividendValue * 2;
         if (ratio >= 0.8 && sd.dividendRate) {
           return sd.dividendRate / currentPrice;
+        } else if (sd.dividendRate && annualEst > sd.dividendRate * 1.15) {
+          return annualEst / currentPrice;
+        } else if (sd.dividendRate) {
+          return sd.dividendRate / currentPrice;
+        } else {
+          return annualEst / currentPrice;
         }
-        return (ks.lastDividendValue * 2) / currentPrice;
       }
       return sd.dividendYield ?? sd.trailingAnnualDividendYield ?? null;
     })();

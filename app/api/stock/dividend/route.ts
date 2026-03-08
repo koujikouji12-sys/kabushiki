@@ -41,20 +41,34 @@ export async function GET(request: NextRequest) {
           const price: number | null = q?.regularMarketPrice ?? null;
 
           // 配当利回りの計算（Yahoo Finance サイトと同じロジック）:
-          // lastDividendValue / dividendRate の比率で支払い頻度を判定:
-          //   ratio < 0.8 → 年2回払い: lastDividendValue × 2 / price（直近配当ベース、増配反映）
-          //   ratio >= 0.8 → 年1回払い: dividendRate / price（Yahoo Finance の年間予測値）
+          //
+          // 優先ロジック（lastDividendValue がある場合）:
+          //   ratio = lastDiv / dividendRate
+          //   1. ratio >= 0.8 → 年1回払い（竹内製作所など）: dividendRate / price
+          //   2. lastDiv×2 > dividendRate×1.15（15%以上乖離）
+          //      → dividendRate が古く増配を反映していない: lastDiv × 2 / price
+          //      （例: MS&AD dividendRate=120 が古い、lastDiv×2=155 が正しい）
+          //   3. それ以外 → dividendRate / price（YF の forward estimate が正確）
+          //      （例: 三井トラスト dividendRate=170 が正確、lastDiv×2=180 は若干過大）
+          //
           // フォールバック: summaryDetail.dividendYield → trailingAnnualDividendYield
           // ※ quote().dividendYield はパーセント単位のため使用しない
           let dividendYield: number | null = null;
           if (ks.lastDividendValue && price && price > 0) {
             const ratio = sd.dividendRate ? ks.lastDividendValue / sd.dividendRate : 0;
+            const annualEst = ks.lastDividendValue * 2;
             if (ratio >= 0.8 && sd.dividendRate) {
-              // 年1回払い（例: 竹内製作所）: dividendRate がそのまま年間配当
+              // 年1回払い: dividendRate がそのまま年間配当
+              dividendYield = sd.dividendRate / price;
+            } else if (sd.dividendRate && annualEst > sd.dividendRate * 1.15) {
+              // dividendRate が増配前の古い値: 直近配当 × 2 を使用
+              dividendYield = annualEst / price;
+            } else if (sd.dividendRate) {
+              // dividendRate が最新の forward estimate として信頼できる
               dividendYield = sd.dividendRate / price;
             } else {
-              // 年2回払い（日本株の標準）: 直近配当 × 2 で年間配当を推計
-              dividendYield = (ks.lastDividendValue * 2) / price;
+              // dividendRate がない場合: 直近配当 × 2 で推計
+              dividendYield = annualEst / price;
             }
           } else if (sd.dividendYield != null) {
             dividendYield = sd.dividendYield;
