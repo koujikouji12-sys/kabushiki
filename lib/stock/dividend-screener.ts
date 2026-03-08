@@ -152,8 +152,21 @@ async function screenOneStock(candidate: ScreenCandidate): Promise<ScreenResult 
     const bs: any =
       bsAnnual.totalAssets != null ? bsAnnual : bsQuarterly;
 
-    const dividendYield: number | null =
-      sd.dividendYield ?? sd.trailingAnnualDividendYield ?? null;
+    // 配当利回りの計算（route.ts と同じロジック）:
+    // lastDividendValue / dividendRate の比率で支払い頻度を判定:
+    //   ratio < 0.8 → 年2回払い: lastDividendValue × 2 / price
+    //   ratio >= 0.8 → 年1回払い: dividendRate / price
+    const currentPrice: number | null = fd.currentPrice ?? null;
+    const dividendYield: number | null = (() => {
+      if (ks.lastDividendValue && currentPrice && currentPrice > 0) {
+        const ratio = sd.dividendRate ? ks.lastDividendValue / sd.dividendRate : 0;
+        if (ratio >= 0.8 && sd.dividendRate) {
+          return sd.dividendRate / currentPrice;
+        }
+        return (ks.lastDividendValue * 2) / currentPrice;
+      }
+      return sd.dividendYield ?? sd.trailingAnnualDividendYield ?? null;
+    })();
     const pbr: number | null = ks.priceToBook ?? null;
     const payoutRatio: number | null = sd.payoutRatio ?? null;
     const operatingMargin: number | null = fd.operatingMargins ?? null;
@@ -222,15 +235,18 @@ export async function screenAllCandidates(): Promise<ScreenResult[]> {
     const quoteArr: any[] = Array.isArray(quotes) ? quotes : [quotes];
     const yieldMap = new Map<string, number>();
     for (const q of quoteArr) {
-      const y = q?.trailingAnnualDividendYield ?? q?.dividendYield ?? null;
+      // quote().dividendYield はパーセント単位（例: 2.91 = 2.91%）のため使用しない
+      // trailingAnnualDividendYield は小数単位（例: 0.0266 = 2.66%）で正しい
+      const y = q?.trailingAnnualDividendYield ?? null;
       if (y != null && q?.symbol) yieldMap.set(q.symbol, y);
     }
-    // 配当利回り3%未満は除外（データがない場合は含める）
+    // trailingAnnualDividendYield は過去実績のため増配後は実際より低く出ることがある
+    // 2.5%以上（またはデータなし）を通過させ、詳細取得時の正確計算で最終判定する
     filteredCandidates = SCREEN_CANDIDATES.filter(c => {
       const y = yieldMap.get(c.symbol);
-      return y == null || y >= 0.03;
+      return y == null || y >= 0.025;
     });
-    console.log(`[screener] 事前フィルタ: ${SCREEN_CANDIDATES.length}銘柄 → ${filteredCandidates.length}銘柄 (配当利回り3%+)`);
+    console.log(`[screener] 事前フィルタ: ${SCREEN_CANDIDATES.length}銘柄 → ${filteredCandidates.length}銘柄 (trailing利回り2.5%+)`);
   } catch (e) {
     console.warn("[screener] 事前フィルタ失敗、全銘柄をスクリーニング:", String(e));
   }
