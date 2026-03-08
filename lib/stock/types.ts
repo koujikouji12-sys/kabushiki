@@ -87,10 +87,16 @@ export interface DividendRefreshResponse {
   timestamp: string;
 }
 
-// APIレスポンス型
+// APIレスポンス型（ページング対応）
 export interface RefreshResponse {
-  topRising: FullStockData[];   // スコア上位10銘柄
-  allStocks: FullStockData[];   // 全50銘柄（スコア降順）
+  stocks: FullStockData[];      // このページの銘柄
+  topRising: FullStockData[];   // スコア上位10銘柄（page=0 のみ）
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  isLast: boolean;
   timestamp: string;
   errors: string[];
+  // 後方互換（旧コード用）
+  allStocks?: FullStockData[];
 }

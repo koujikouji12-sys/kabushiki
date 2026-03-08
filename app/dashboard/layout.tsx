@@ -11,7 +11,7 @@ import React, {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
-import type { FullStockData, RefreshResponse, DividendQuote, StockQuote } from "@/lib/stock/types";
+import type { FullStockData, DividendQuote, StockQuote } from "@/lib/stock/types";
 import type { StockMeta } from "@/lib/stock/types";
 import { RefreshButton } from "@/components/stock/RefreshButton";
 import { DEFAULT_DIVIDEND_STOCKS } from "@/lib/stock/dividend-stocks-list";
@@ -61,6 +61,8 @@ interface StockContextType {
   topRising: FullStockData[];
   heatmapStocks: FullStockData[]; // 高速ヒートマップ用（クォートのみ）
   loading: boolean;
+  allStocksLoading: boolean; // Phase2: 指標データ取得中フラグ
+  allStocksProgress: number; // Phase2: 読み込み済み銘柄数
   lastUpdated: string | null;
   refresh: () => Promise<void>;
   // 高配当株監視
@@ -78,6 +80,8 @@ const StockContext = createContext<StockContextType>({
   topRising: [],
   heatmapStocks: [],
   loading: false,
+  allStocksLoading: false,
+  allStocksProgress: 0,
   lastUpdated: null,
   refresh: async () => {},
   dividendStocks: DEFAULT_DIVIDEND_STOCKS,
@@ -121,6 +125,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [topRising, setTopRising] = useState<FullStockData[]>([]);
   const [heatmapStocks, setHeatmapStocks] = useState<FullStockData[]>([]);
   const [loading, setLoading] = useState(false);
+  const [allStocksLoading, setAllStocksLoading] = useState(false);
+  const [allStocksProgress, setAllStocksProgress] = useState(0);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -166,6 +172,56 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, []);
 
+  // Phase 2: 50銘柄ずつページ取得して allStocks を順次更新
+  const fetchAllStocksInPages = useCallback(async (pageSize = 50) => {
+    setAllStocksLoading(true);
+    setAllStocks([]);
+    setAllStocksProgress(0);
+    let page = 0;
+    let latestTimestamp: string | null = null;
+
+    while (true) {
+      try {
+        const res = await fetch("/api/stock/refresh", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ page, pageSize }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data.error ?? "データ取得に失敗しました");
+          break;
+        }
+        if (data.errors?.length) console.warn("一部エラー:", data.errors);
+
+        // allStocks に追記してスコア降順ソート
+        setAllStocks((prev) => {
+          const merged = [...prev, ...data.stocks];
+          merged.sort((a, b) => b.score.totalScore - a.score.totalScore);
+          return merged;
+        });
+        setAllStocksProgress((prev) => prev + (data.stocks?.length ?? 0));
+
+        if (page === 0 && data.topRising?.length > 0) {
+          setTopRising(data.topRising);
+        }
+
+        latestTimestamp = data.timestamp;
+
+        if (data.isLast) {
+          setHeatmapStocks([]); // 完全データで代替
+          if (latestTimestamp) setLastUpdated(latestTimestamp);
+          break;
+        }
+        page++;
+      } catch (e) {
+        setError("通信エラー: " + String(e));
+        break;
+      }
+    }
+    setAllStocksLoading(false);
+  }, []);
+
   // 日経225 ＋ 高配当株を同時取得
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -187,29 +243,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       fetchDividendQuotes(dividendStocksRef.current),
     ]);
 
-    // Phase 2: Phase 1完了後に履歴+スコアリング込みの完全データ取得（Yahoo Finance二重呼び出し回避）
-    try {
-      const res = await fetch("/api/stock/refresh", { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error ?? "データ取得に失敗しました");
-      } else {
-        const typed = data as RefreshResponse;
-        setAllStocks(typed.allStocks);
-        setTopRising(typed.topRising);
-        setLastUpdated(typed.timestamp);
-        setHeatmapStocks([]); // 完全データで代替されるので不要に
-        if (typed.errors?.length) {
-          console.warn("一部エラー:", typed.errors);
-        }
-      }
-    } catch (e) {
-      setError("通信エラー: " + String(e));
-      console.error("Refresh failed:", e);
-    }
+    setLoading(false); // Phase 1 完了でローディング解除（ヒートマップ表示可能に）
 
-    setLoading(false);
-  }, [fetchDividendQuotes]);
+    // Phase 2: 50銘柄ずつ順次取得（バックグラウンド）
+    await fetchAllStocksInPages(50);
+  }, [fetchDividendQuotes, fetchAllStocksInPages]);
 
   // 銘柄を追加して、その銘柄のデータだけを取得
   const addDividendStock = useCallback(async (stock: StockMeta) => {
@@ -297,24 +335,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         fetchDividendQuotes(stocksToUse),
       ]);
 
-      // Phase 2: Phase 1完了後に履歴+スコアリング込みの完全データ取得（Yahoo Finance二重呼び出し回避）
-      try {
-        const res = await fetch("/api/stock/refresh", { method: "POST" });
-        const data = await res.json();
-        if (!res.ok) {
-          setError(data.error ?? "データ取得に失敗しました");
-        } else {
-          const typed = data as RefreshResponse;
-          setAllStocks(typed.allStocks);
-          setTopRising(typed.topRising);
-          setLastUpdated(typed.timestamp);
-          setHeatmapStocks([]);
-        }
-      } catch (e) {
-        setError("通信エラー: " + String(e));
-      }
+      setLoading(false); // Phase 1 完了でローディング解除
 
-      setLoading(false);
+      // Phase 2: 50銘柄ずつ順次取得（バックグラウンド）
+      await fetchAllStocksInPages(50);
     };
 
     autoFetch();
@@ -328,6 +352,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         topRising,
         heatmapStocks,
         loading,
+        allStocksLoading,
+        allStocksProgress,
         lastUpdated,
         refresh,
         dividendStocks,
